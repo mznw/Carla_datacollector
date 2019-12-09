@@ -88,6 +88,7 @@ import math
 import random
 import re
 import weakref
+import pickle
 
 try:
     import pygame
@@ -195,22 +196,21 @@ class World(object):
         global restart_count 
         
         if (not self._recording) and restart_count == 0 :
-            filename = time.strftime("_data/data-%m%d%H%M%S",time.localtime()) +command_name[self._command] + '.h5'
+            filename = time.strftime("_data/data-%m%d%H%M%S",time.localtime()) +command_name[self._command] + '.pkl'
             output_str = ""
             for tk in self._data.keys():
                 output_str += str(len(self._data[tk])) + ' ' 
             print('data_length', output_str)
             if 'data' in self._data and not len(self._data['data']) == 0:
                 print('save in ', filename, ' frame_num: ' , len(self._data['data']))
-                f = h5py.File(filename)
-                for tname in self._camera_name:
-                    f.create_dataset(tname, data = self._data[tname], compression="gzip")
-                f.create_dataset('data', data = self._data['data'], compression="gzip")
+                f = open(filename, 'wb')
+                pickle.dump(self._data, f, True)
                 f.close()
             else:
                 print('no frame to save')
         else :
             print('restart and no save')
+        self._data = []
 
         restart_count = 0
 
@@ -265,6 +265,7 @@ class World(object):
         self._camera_name = camera_name
 
         self._command = np.random.randint(4)
+        self.hud._command = self._command
         print('now, you need to go ', command_name[self._command])
 
         SpawnActor = carla.command.SpawnActor
@@ -543,6 +544,7 @@ class HUD(object):
         self._heading  = 0
         self._x = 0
         self._y = 0
+        self._command = 0
 
     def on_world_tick(self, timestamp):
         self._server_clock.tick()
@@ -575,6 +577,8 @@ class HUD(object):
         self._info_text = [
             'Server:  % 16.0f FPS' % self.server_fps,
             'Client:  % 16.0f FPS' % clock.get_fps(),
+            'Command: % 10s   ' % command_name[self._command],
+            'Recording : % 10s   ' % str(world._recording),
             '',
             'Vehicle: % 20s' % get_actor_display_name(world.player, truncate=20),
             'Map:     % 20s' % world.map.name,
@@ -620,6 +624,7 @@ class HUD(object):
 
     def notification(self, text, seconds=2.0):
         self._notifications.set_text(text, seconds=seconds)
+        return 
 
     def error(self, text):
         self._notifications.set_text('Error: %s' % text, (255, 0, 0))
@@ -1002,9 +1007,9 @@ class CameraSaver(object):
         image.convert(self.sensors[self.index][1])
         array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
         array = np.reshape(array, (image.height, image.width, 4))
-        #array = array[115:510, :, :3]
+        array = array[115:510, :, :3]
         array = array[:, :, :3]
-        #array = scipy.misc.imresize(array, [88,200])
+        array = scipy.misc.imresize(array, [88,200])
         self._image = array
         self._frame_num = image.frame_number
 
@@ -1036,7 +1041,7 @@ def game_loop(args):
 
         display = pygame.display.set_mode(
             (args.width, args.height),
-            pygame.HWSURFACE | pygame.DOUBLEBUF) # | pygame.FULLSCREEN)
+            pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.FULLSCREEN)
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, client, args)
@@ -1044,7 +1049,7 @@ def game_loop(args):
 
         clock = pygame.time.Clock()
         while True:
-            clock.tick_busy_loop(20)
+            clock.tick_busy_loop(12)
             if controller.parse_events(client, world, clock):
                 return
             world.tick(clock)
