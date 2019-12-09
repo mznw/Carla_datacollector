@@ -173,13 +173,10 @@ class World(object):
         self._weather_index = 0
         self._actor_filter = args.filter
         self._gamma = args.gamma
+        self._data = dict()
 
         self._recording = False
         self._command = 0
-        self._rgbList = []
-        self._segList = []
-        self._depthList = []
-        self._dataList = []
         self.other_vehicle = -1
 
         blueprint = self.world.get_blueprint_library().filter(self._actor_filter)
@@ -199,16 +196,16 @@ class World(object):
         
         if (not self._recording) and restart_count == 0 :
             filename = time.strftime("_data/data-%m%d%H%M%S",time.localtime()) +command_name[self._command] + '.h5'
-            print(len(self._rgbList))
-            print(len(self._segList))
-            print(len(self._dataList))
-            if not len(self._dataList) == 0:
-                print('save in ', filename, ' frame_num: ' , len(self._rgbList))
+            output_str = ""
+            for tk in self._data.keys():
+                output_str += str(len(self._data[tk])) + ' ' 
+            print('data_length', output_str)
+            if 'data' in self._data and not len(self._data['data']) == 0:
+                print('save in ', filename, ' frame_num: ' , len(self._data['data']))
                 f = h5py.File(filename)
-                f.create_dataset('rgb', data = self._rgbList, compression="gzip")
-                f.create_dataset('seg', data = self._segList, compression="gzip")
-                f.create_dataset('depth', data = self._depthList, compression="gzip")
-                f.create_dataset('data', data = self._dataList, compression="gzip")
+                for tname in self._camera_name:
+                    f.create_dataset(tname, data = self._data[tname], compression="gzip")
+                f.create_dataset('data', data = self._data['data'], compression="gzip")
                 f.close()
             else:
                 print('no frame to save')
@@ -256,28 +253,17 @@ class World(object):
         actor_type = get_actor_display_name(self.player)
         self.hud.notification(actor_type)
 
-        self._rgb = CameraSaver(self.player, self._gamma)
-        self._rgb.set_sensor(0)
-        self._rgb.set_name('rgb')
-        self._rgb_list = []
-        rgb_name = ['translation_left', 'translation_right', 'rotation_left', 'rotation_right']
-        for i in range(4):
+        self._data = collections.defaultdict(list)
+        self._CameraList = []
+        camera_name = ['rgb', 'translation_left', 'translation_right', 'rotation_left', 'rotation_right', 'seg', 'depth']
+        camera_setting = [(0,0), (0,1), (0,2), (0,3), (0,4), (1,0), (2,0)]
+        for i in range(7):
             tt = CameraSaver(self.player, self._gamma)
-            tt.set_sensor(0, i + 1)
-            tt.set_name('rgb')
-            self._rgbCarmeraList.append(tt)
+            tt.set_sensor(camera_setting[i][0], camera_setting[i][1])
+            tt.set_name(camera_name[i])
+            self._CameraList.append(tt)
+        self._camera_name = camera_name
 
-        self._seg = CameraSaver(self.player, self._gamma)
-        self._seg.set_sensor(1)
-        self._seg.set_name('seg')
-        self._depth = CameraSaver(self.player, self._gamma)
-        self._depth.set_sensor(2)
-        self._depth.set_name('depth')
-        self._control = carla.VehicleControl()
-        self._rgbList = []
-        self._segList = []
-        self._depthList = []
-        self._dataList = []
         self._command = np.random.randint(4)
         print('now, you need to go ', command_name[self._command])
 
@@ -323,12 +309,11 @@ class World(object):
         #self._rgb.save_img()
         #self._seg.save_img()
         #self._depth.save_img()
-        for tt in self._rgbCarmeraList:
-            tt.save_img()
+        #for tt in self._CameraList:
+        #    tt.save_img()
         if self._recording:
-            self._rgbList.append(self._rgb._image)
-            self._segList.append(self._seg._image)
-            self._depthList.append(self._depth._image)
+            for i, tname in enumerate(self._camera_name):
+                self._data[tname].append(self._CameraList[i]._image)
             temp_data = []
             temp_data.append(now_control.steer)
             temp_data.append(now_control.throttle)
@@ -341,7 +326,7 @@ class World(object):
             temp_data.append(self.hud._gnss_lat)
             temp_data.append(self.hud._gnss_lon)
             print('datalist', temp_data)
-            self._dataList.append(temp_data)
+            self._data['data'].append(temp_data)
         self.hud.render(display)
 
     def destroy_sensors(self):
@@ -355,10 +340,9 @@ class World(object):
             self.collision_sensor.sensor,
             self.lane_invasion_sensor.sensor,
             self.gnss_sensor.sensor,
-            self._rgb.sensor,
-            self._seg.sensor,
-            self._depth.sensor,
-            self.player]
+            self.player] 
+        for ts in self._CameraList:
+            actors.append(ts.sensor)
         for actor in actors:
             if actor is not None:
                 actor.destroy()
@@ -882,7 +866,7 @@ class CameraManager(object):
         self.transform_index = (self.transform_index + 1) % len(self._camera_transforms)
         self.set_sensor(self.index, notify=False, force_respawn=True)
 
-    def set_sensor(self, index, transform_index = 0, notify=True, force_respawn=False):
+    def set_sensor(self, index, notify=True, force_respawn=False):
         index = index % len(self.sensors)
         needs_respawn = True if self.index is None else \
             (force_respawn or (self.sensors[index][0] != self.sensors[self.index][0]))
@@ -892,9 +876,9 @@ class CameraManager(object):
                 self.surface = None
             self.sensor = self._parent.get_world().spawn_actor(
                 self.sensors[index][-1],
-                self._camera_transforms[transform_index][0],
+                self._camera_transforms[self.transform_index][0],
                 attach_to=self._parent,
-                attachment_type=self._camera_transforms[transform_index][1])
+                attachment_type=self._camera_transforms[self.transform_index][1])
             # We need to pass the lambda a weak reference to self to avoid
             # circular reference.
             weak_self = weakref.ref(self)
@@ -953,10 +937,10 @@ class CameraSaver(object):
         Attachment = carla.AttachmentType
         self._camera_transforms = [
             (carla.Transform(carla.Location(x=1.6, z=1.7)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=1.6, y =  0.5, z=1.7)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=1.6, y = -0.5, z=1.7)), Attachment.Rigid),
-            (carla.Transform(carla.Location(x=1.6, z=1.7), carls.Rotation(yaw =  30), Attachment.Rigid), # right
-            (carla.Transform(carla.Location(x=1.6, z=1.7), carls.Rotation(yaw = -30), Attachment.Rigid), # left
+            (carla.Transform(carla.Location(x=1.6, y = -1.5, z=1.7)), Attachment.Rigid), #left
+            (carla.Transform(carla.Location(x=1.6, y =  1.5, z=1.7)), Attachment.Rigid), #right
+            (carla.Transform(carla.Location(x=1.6, z=1.7), carla.Rotation(yaw = -45)), Attachment.Rigid), # left
+            (carla.Transform(carla.Location(x=1.6, z=1.7), carla.Rotation(yaw =  45)), Attachment.Rigid), # right
         ]
 
         self.transform_index = 0
@@ -982,23 +966,20 @@ class CameraSaver(object):
         self.transform_index = (self.transform_index + 1) % len(self._camera_transforms)
         self.set_sensor(self.index, notify=False, force_respawn=True)
 
-    def set_sensor(self, index, notify=True, force_respawn=False):
+    def set_sensor(self, index, transform_index = 0, notify=True, force_respawn=False):
         index = index % len(self.sensors)
-        needs_respawn = True if self.index is None else \
-            (force_respawn or (self.sensors[index][0] != self.sensors[self.index][0]))
-        if needs_respawn:
-            if self.sensor is not None:
-                self.sensor.destroy()
-                self.surface = None
-            self.sensor = self._parent.get_world().spawn_actor(
-                self.sensors[index][-1],
-                self._camera_transforms[self.transform_index][0],
-                attach_to=self._parent,
-                attachment_type=self._camera_transforms[self.transform_index][1])
+        if self.sensor is not None:
+            self.sensor.destroy()
+            self.surface = None
+        self.sensor = self._parent.get_world().spawn_actor(
+            self.sensors[index][-1],
+            self._camera_transforms[transform_index][0],
+            attach_to=self._parent,
+            attachment_type=self._camera_transforms[transform_index][1])
             # We need to pass the lambda a weak reference to self to avoid
             # circular reference.
-            weak_self = weakref.ref(self)
-            self.sensor.listen(lambda image: CameraSaver._parse_image(weak_self, image))
+        weak_self = weakref.ref(self)
+        self.sensor.listen(lambda image: CameraSaver._parse_image(weak_self, image))
         self.index = index
         self._image = None
 
