@@ -59,6 +59,7 @@ import datetime
 import time 
 import scipy.misc
 
+print(sys.path)
 sys.path.remove('/home/autolab/.local/lib/python3.5/site-packages/carla-0.9.4-py3.5-linux-x86_64.egg')
 sys.path.append('/home/autolab/0.9.6/PythonAPI/carla/dist/carla-0.9.6-py3.5-linux-x86_64.egg')
 sys.path.append('/usr/local/lib/python3.5/site-packages/')
@@ -214,7 +215,6 @@ class World(object):
 
         restart_count = 0
 
-
         self._vehicle_index = 20
         # Keep same camera config if the camera manager exists.
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
@@ -326,6 +326,7 @@ class World(object):
             temp_data.append(self.hud._heading)
             temp_data.append(self.hud._gnss_lat)
             temp_data.append(self.hud._gnss_lon)
+            temp_data.append(self._weather_index)
             print('datalist', temp_data)
             self._data['data'].append(temp_data)
         self.hud.render(display)
@@ -959,8 +960,8 @@ class CameraSaver(object):
         for item in self.sensors:
             bp = bp_library.find(item[0])
             if item[0].startswith('sensor.camera'):
-                bp.set_attribute('image_size_x', '1280')
-                bp.set_attribute('image_size_y', '720')
+                bp.set_attribute('image_size_x', '800')
+                bp.set_attribute('image_size_y', '600')
                 if bp.has_attribute('gamma'):
                     bp.set_attribute('gamma', str(gamma_correction))
             item.append(bp)
@@ -1049,7 +1050,7 @@ def game_loop(args):
 
         clock = pygame.time.Clock()
         while True:
-            clock.tick_busy_loop(12)
+            clock.tick_busy_loop(20)
             if controller.parse_events(client, world, clock):
                 return
             world.tick(clock)
@@ -1094,6 +1095,7 @@ def main():
     argparser.add_argument(
         '--host',
         metavar='H',
+        #default='192.168.3.203',
         default='127.0.0.1',
         help='IP of the host server (default: 127.0.0.1)')
     argparser.add_argument(
@@ -1109,8 +1111,8 @@ def main():
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
-        default='1280x720',
-        #default='1920x1080',
+        #default='1280x720',
+        default='1920x1080',
         help='window resolution (default: 1280x720)')
     argparser.add_argument(
         '--filter',
