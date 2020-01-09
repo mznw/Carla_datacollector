@@ -60,8 +60,11 @@ import time
 import scipy.misc
 
 print(sys.path)
-sys.path.remove('/home/autolab/.local/lib/python3.5/site-packages/carla-0.9.4-py3.5-linux-x86_64.egg')
-sys.path.append('/home/autolab/0.9.6/PythonAPI/carla/dist/carla-0.9.6-py3.5-linux-x86_64.egg')
+try:
+    sys.path.remove('/home/autolab/.local/lib/python3.5/site-packages/carla-0.9.4-py3.5-linux-x86_64.egg')
+except:
+    print('remove failed')
+sys.path.append('/home/autolab/0.9.7/PythonAPI/carla/dist/carla-0.9.7-py3.5-linux-x86_64.egg')
 sys.path.append('/usr/local/lib/python3.5/site-packages/')
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*3.5-%s.egg' % (
@@ -70,6 +73,14 @@ try:
         'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
 except IndexError:
     pass
+sys.path.append('../carla/')
+from agents.navigation.behavior.behavior_agent import BehaviorAgent
+from agents.navigation.behavior.local_planner_behavior import RoadOption
+
+
+print('xx')
+global now_control
+now_control = None
 
 
 # ==============================================================================
@@ -140,8 +151,6 @@ restart_count = 0
 
 command_name = ['Right','Straight', 'Follow', 'Left']
 
-now_control = carla.VehicleControl()
-
 def find_weather_presets():
     rgx = re.compile('.+?(?:(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])|$)')
     name = lambda x: ' '.join(m.group(0) for m in rgx.finditer(x))
@@ -197,7 +206,7 @@ class World(object):
         global restart_count 
         
         if (not self._recording) and restart_count == 0 :
-            filename = time.strftime("_data/data-%m%d%H%M%S",time.localtime()) +command_name[self._command] + '.pkl'
+            filename = time.strftime("_data/data-%m%d%H%M%S",time.localtime()) + '.pkl'
             output_str = ""
             for tk in self._data.keys():
                 output_str += str(len(self._data[tk])) + ' ' 
@@ -215,7 +224,7 @@ class World(object):
 
         restart_count = 0
 
-        self._vehicle_index = 20
+        self._vehicle_index = 19
         # Keep same camera config if the camera manager exists.
         cam_index = self.camera_manager.index if self.camera_manager is not None else 0
         cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
@@ -231,17 +240,21 @@ class World(object):
         if blueprint.has_attribute('is_invincible'):
             blueprint.set_attribute('is_invincible', 'true')
         # Spawn the player.
+        spawn_points = self.world.get_map().get_spawn_points()
+        st_index = random.choice(list(range(len(spawn_points))))
+        ed_index = random.choice(list(range(len(spawn_points))))
+        print('st ed' , st_index, ed_index)
+        #st_index = 87
+        #ed_index = 27
         if self.player is not None:
-            spawn_points = self.world.get_map().get_spawn_points()
-            spawn_point = random.choice(spawn_points) 
+            spawn_point = spawn_points[st_index]
             spawn_point.location.z += 2.0
             spawn_point.rotation.roll = 0.0
             spawn_point.rotation.pitch = 0.0
             self.destroy()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
         while self.player is None:
-            spawn_points = self.map.get_spawn_points()
-            spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
+            spawn_point = spawn_points[st_index]
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
         # Set up the sensors.
         self.collision_sensor = CollisionSensor(self.player, self.hud)
@@ -256,8 +269,11 @@ class World(object):
         self._data = collections.defaultdict(list)
         self._CameraList = []
         camera_name = ['rgb', 'translation_left', 'translation_right', 'rotation_left', 'rotation_right', 'seg', 'depth']
+        #camera_name = ['rgb']
+        #camera_setting = [(0,0), (0,1), (0,2), (0,3), (0,4), (1,0), (2,0)]
+        #camera_setting = [(0,0)]
         camera_setting = [(0,0), (0,1), (0,2), (0,3), (0,4), (1,0), (2,0)]
-        for i in range(7):
+        for i in range(len(camera_name)):
             tt = CameraSaver(self.player, self._gamma)
             tt.set_sensor(camera_setting[i][0], camera_setting[i][1])
             tt.set_name(camera_name[i])
@@ -275,7 +291,8 @@ class World(object):
         t = self.player.get_transform().location
         map = self.world.get_map()
         ts = 10.0 + np.random.rand(1)[0] * 10 
-        waypoint_next = map.get_waypoint(t, True).next(ts)
+        #ts = 13
+        waypoint_next = map.get_waypoint(spawn_points[st_index].location, True).next(ts)
         other_transform = waypoint_next[-1].transform
         print(ts, other_transform)
         actor_list = self.world.get_actors()
@@ -285,12 +302,19 @@ class World(object):
                 self.other_vehicle = xx
         if not isinstance(self.other_vehicle, int):
             self.other_vehicle.destroy()
-        self.other_vehicle = SpawnActor(blueprint, other_transform).then(SetAutopilot(FutureActor, True))
+
+        #self.other_vehicle = SpawnActor(blueprint, other_transform).then(SetAutopilot(FutureActor,random.choice([False,True, True])))
+        self.other_vehicle = SpawnActor(blueprint, other_transform).then(SetAutopilot(FutureActor,True))
         self.other_vehicle = self.client.apply_batch_sync([self.other_vehicle])[0].actor_id
         #self.other_vehicle.start()
         #self.other_vehicle.go_to_location(world.get_random_location_from_navigation())
         #self.other_vehicle.set_max_speed(2 + 2*random.random())    # max speed between 1 and 2 (default is 1.4 m/s)
         self._recording = False
+
+        self.agent = BehaviorAgent(self.player, ignore_traffic_light=True, behavior='normal')
+        route = self.agent.set_destination(spawn_points[st_index].location, spawn_points[ed_index].location)
+        self.agent.update_information(self)
+        self.frame_index = 0
 
     def next_weather(self, reverse=False):
         self._weather_index += -1 if reverse else 1
@@ -305,18 +329,56 @@ class World(object):
     def toggle_recording(self):
         self._recording = not self._recording
 
-    def render(self, display):
+    def render(self, display = None):
+        self.agent.update_information(self)
+        self.frame_index += 1
+        global now_control
+        now_control = self.agent.run_step()
+        #command_name = ['Right','Straight', 'Follow', 'Left']
+        def RO2int(direction):
+            if direction == RoadOption.LEFT:
+                return 3
+            if direction == RoadOption.RIGHT:
+                return 0
+            if direction == RoadOption.STRAIGHT:
+                return 1
+            return 2
+        print(self.agent.direction, RO2int(self.agent.direction), now_control)
+        self._command = RO2int(self.agent.direction)
+        self.hud._command = RO2int(self.agent.direction)
+        #print(self.player.get_transform())
+        if self.agent.completed:
+            self._recording = False
+            self.restart()
+        if self.frame_index > 200:
+            self._recording = False
+            self.restart()
+        if self.frame_index > 1:
+            self._recording = True
+        route = self.agent.route
+        def draw_waypoint_union(debug, w0, w1, color=carla.Color(255, 0, 0), lt=0.5):
+            debug.draw_line(
+            w0.transform.location + carla.Location(z=0.25),
+            w1.transform.location + carla.Location(z=0.25),
+            thickness=0.1, color=color, life_time=lt, persistent_lines=False)
+            debug.draw_point(w1.transform.location + carla.Location(z=0.25), 0.1, color, lt, False)
+        self.debug = self.world.debug
+        #for i in range(len(route) - 1):
+        #    draw_waypoint_union(self.debug, route[i][0], route[i+1][0])
+
         self.camera_manager.render(display)
         #self._rgb.save_img()
         #self._seg.save_img()
         #self._depth.save_img()
         #for tt in self._CameraList:
-        #    tt.save_img()
+            #tt.save_img()
+            #print('save')
         if self._recording:
             for i, tname in enumerate(self._camera_name):
                 self._data[tname].append(self._CameraList[i]._image)
             temp_data = []
             temp_data.append(now_control.steer)
+            
             temp_data.append(now_control.throttle)
             temp_data.append(now_control.brake)
             temp_data.append(self.hud._speed)
@@ -342,7 +404,7 @@ class World(object):
             self.collision_sensor.sensor,
             self.lane_invasion_sensor.sensor,
             self.gnss_sensor.sensor,
-            self.player] 
+            self.player]
         for ts in self._CameraList:
             actors.append(ts.sensor)
         for actor in actors:
@@ -469,6 +531,13 @@ class KeyboardControl(object):
             world.player.apply_control(self._control)
 
     def _parse_vehicle_keys(self, keys, milliseconds):
+        global now_control
+        if now_control is None: return 
+        self._control.steer    = now_control.steer
+        self._control.throttle = now_control.throttle
+        self._control.brake    = now_control.brake
+        return 
+
         if self._G29 :
             self._control.steer = self._joystick.get_axis(0) * 0.45
             self._control.throttle = (1.0 - self._joystick.get_axis(2)) * 0.5
@@ -625,7 +694,6 @@ class HUD(object):
 
     def notification(self, text, seconds=2.0):
         self._notifications.set_text(text, seconds=seconds)
-        return 
 
     def error(self, text):
         self._notifications.set_text('Error: %s' % text, (255, 0, 0))
@@ -960,8 +1028,10 @@ class CameraSaver(object):
         for item in self.sensors:
             bp = bp_library.find(item[0])
             if item[0].startswith('sensor.camera'):
-                bp.set_attribute('image_size_x', '800')
-                bp.set_attribute('image_size_y', '600')
+                bp.set_attribute('image_size_x', '200')
+                bp.set_attribute('image_size_y', '88')
+                #bp.set_attribute('image_size_x', '800')
+                #bp.set_attribute('image_size_y', '600')
                 if bp.has_attribute('gamma'):
                     bp.set_attribute('gamma', str(gamma_correction))
             item.append(bp)
@@ -1005,12 +1075,13 @@ class CameraSaver(object):
         if not self:
             return
         #print(self._name, '_parse_image')
+        #print(self._name, image.fov)
         image.convert(self.sensors[self.index][1])
         array = np.frombuffer(image.raw_data, dtype=np.dtype("uint8"))
         array = np.reshape(array, (image.height, image.width, 4))
-        array = array[115:510, :, :3]
+        #array = array[115:510, :, :3]
         array = array[:, :, :3]
-        array = scipy.misc.imresize(array, [88,200])
+        #array = scipy.misc.imresize(array, [88,200])
         self._image = array
         self._frame_num = image.frame_number
 
@@ -1042,7 +1113,8 @@ def game_loop(args):
 
         display = pygame.display.set_mode(
             (args.width, args.height),
-            pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.FULLSCREEN)
+            pygame.DOUBLEBUF )
+            #pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.FULLSCREEN)
 
         hud = HUD(args.width, args.height)
         world = World(client.get_world(), hud, client, args)
@@ -1050,11 +1122,12 @@ def game_loop(args):
 
         clock = pygame.time.Clock()
         while True:
-            clock.tick_busy_loop(20)
+            clock.tick_busy_loop(10)
             if controller.parse_events(client, world, clock):
                 return
             world.tick(clock)
             world.render(display)
+            #world.render()
             pygame.display.flip()
 
     finally:
@@ -1111,8 +1184,8 @@ def main():
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
-        #default='1280x720',
-        default='1920x1080',
+        default='1280x720',
+        #default='1920x1080',
         help='window resolution (default: 1280x720)')
     argparser.add_argument(
         '--filter',
