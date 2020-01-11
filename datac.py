@@ -196,6 +196,7 @@ class World(object):
             print(i, tb)
 
 
+        self.vehicles_list = []
         self.restart()
         self.world.on_tick(hud.on_world_tick)
         self.recording_enabled = False
@@ -266,6 +267,8 @@ class World(object):
         actor_type = get_actor_display_name(self.player)
         self.hud.notification(actor_type)
 
+        self.set_weather()
+
         self._data = collections.defaultdict(list)
         self._CameraList = []
         camera_name = ['rgb', 'translation_left', 'translation_right', 'rotation_left', 'rotation_right', 'seg', 'depth']
@@ -303,6 +306,30 @@ class World(object):
         if not isinstance(self.other_vehicle, int):
             self.other_vehicle.destroy()
 
+
+        #add random vehicles
+        self.client.apply_batch([carla.command.DestroyActor(x) for x in self.vehicles_list])
+        self.vehicles_list = []
+        batch = []
+        for i in range(5):
+            temp_spawn_point_index = random.choice(list(range(len(spawn_points))))
+            transform = spawn_points[temp_spawn_point_index]
+            blueprint = self.world.get_blueprint_library().filter(self._actor_filter)[self._vehicle_index]
+            if blueprint.has_attribute('color'):
+                color = random.choice(blueprint.get_attribute('color').recommended_values)
+                blueprint.set_attribute('color', color)
+            if blueprint.has_attribute('driver_id'):
+                driver_id = random.choice(blueprint.get_attribute('driver_id').recommended_values)
+                blueprint.set_attribute('driver_id', driver_id)
+            blueprint.set_attribute('role_name', 'autopilot')
+            batch.append(SpawnActor(blueprint, transform).then(SetAutopilot(FutureActor, True)))
+
+        for response in self.client.apply_batch_sync(batch):
+            if response.error:
+                logging.error(response.error)
+            else:
+                self.vehicles_list.append(response.actor_id)
+
         #self.other_vehicle = SpawnActor(blueprint, other_transform).then(SetAutopilot(FutureActor,random.choice([False,True, True])))
         self.other_vehicle = SpawnActor(blueprint, other_transform).then(SetAutopilot(FutureActor,True))
         self.other_vehicle = self.client.apply_batch_sync([self.other_vehicle])[0].actor_id
@@ -319,6 +346,12 @@ class World(object):
     def next_weather(self, reverse=False):
         self._weather_index += -1 if reverse else 1
         self._weather_index %= len(self._weather_presets)
+        preset = self._weather_presets[self._weather_index]
+        self.hud.notification('Weather: %s' % preset[1])
+        self.player.get_world().set_weather(preset[0])
+
+    def set_weather(self):
+        self._weather_index = random.choice([1,3,6,8])
         preset = self._weather_presets[self._weather_index]
         self.hud.notification('Weather: %s' % preset[1])
         self.player.get_world().set_weather(preset[0])
