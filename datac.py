@@ -73,8 +73,9 @@ try:
         'win-amd64' if os.name == 'nt' else 'linux-x86_64'))[0])
 except IndexError:
     pass
-sys.path.append('../carla/')
+#sys.path.append('../carla/')
 from agents.navigation.behavior.behavior_agent import BehaviorAgent
+from agents.navigation.basic.basic_agent import BasicAgent
 from agents.navigation.behavior.local_planner_behavior import RoadOption
 
 
@@ -190,6 +191,7 @@ class World(object):
         self._command = 0
         self.other_vehicle = -1
 
+        self.agent = None
         blueprint = self.world.get_blueprint_library().filter(self._actor_filter)
         #print('blueprint', blueprint)
         for i,tb in enumerate(blueprint):
@@ -299,19 +301,21 @@ class World(object):
         other_transform = waypoint_next[-1].transform
         print(ts, other_transform)
         actor_list = self.world.get_actors()
-        for xx in actor_list:
-            #print(xx.id , self.other_vehicle)
-            if xx.id == self.other_vehicle:
-                self.other_vehicle = xx
-        if not isinstance(self.other_vehicle, int):
-            self.other_vehicle.destroy()
+        #for xx in actor_list:
+        #    #print(xx.id , self.other_vehicle)
+        #    if xx.id == self.other_vehicle:
+        #        self.other_vehicle = xx
+        #if not isinstance(self.other_vehicle, int):
+        #    self.other_vehicle.destroy()
 
 
         #add random vehicles
+        print('remove')
         self.client.apply_batch([carla.command.DestroyActor(x) for x in self.vehicles_list])
         self.vehicles_list = []
         batch = []
-        for i in range(5):
+        print('add')
+        for i in range(10):
             temp_spawn_point_index = random.choice(list(range(len(spawn_points))))
             transform = spawn_points[temp_spawn_point_index]
             blueprint = self.world.get_blueprint_library().filter(self._actor_filter)[self._vehicle_index]
@@ -324,23 +328,31 @@ class World(object):
             blueprint.set_attribute('role_name', 'autopilot')
             batch.append(SpawnActor(blueprint, transform).then(SetAutopilot(FutureActor, True)))
 
+        print('xx1')
         for response in self.client.apply_batch_sync(batch):
             if response.error:
                 logging.error(response.error)
             else:
                 self.vehicles_list.append(response.actor_id)
+        print('xx2')
 
         #self.other_vehicle = SpawnActor(blueprint, other_transform).then(SetAutopilot(FutureActor,random.choice([False,True, True])))
-        self.other_vehicle = SpawnActor(blueprint, other_transform).then(SetAutopilot(FutureActor,True))
-        self.other_vehicle = self.client.apply_batch_sync([self.other_vehicle])[0].actor_id
+        #self.other_vehicle = SpawnActor(blueprint, other_transform).then(SetAutopilot(FutureActor,True))
+        #self.other_vehicle = self.client.apply_batch_sync([self.other_vehicle])[0].actor_id
         #self.other_vehicle.start()
         #self.other_vehicle.go_to_location(world.get_random_location_from_navigation())
         #self.other_vehicle.set_max_speed(2 + 2*random.random())    # max speed between 1 and 2 (default is 1.4 m/s)
         self._recording = False
 
+        print('agent')
         self.agent = BehaviorAgent(self.player, ignore_traffic_light=True, behavior='normal')
-        route = self.agent.set_destination(spawn_points[st_index].location, spawn_points[ed_index].location)
-        self.agent.update_information(self)
+        #self.agent = BehaviorAgent(self.player, ignore_traffic_light=True, behavior='normal')
+        #self.agent = BasicAgent(self.player, target_speed = 35)
+        print('route')
+        route = self.agent.set_destination(spawn_points[st_index].location, spawn_points[ed_index].location, clean = True)
+        #route = self.agent.set_destination(spawn_points[st_index].location, spawn_points[ed_index].location)
+        print('update')
+        #self.agent.update_information(self)
         self.frame_index = 0
 
     def next_weather(self, reverse=False):
@@ -1150,7 +1162,8 @@ def game_loop(args):
             #pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.FULLSCREEN)
 
         hud = HUD(args.width, args.height)
-        world = World(client.get_world(), hud, client, args)
+        #world = World(client.get_world(), hud, client, args)
+        world = World(client.load_world('Town01'), hud, client, args)
         controller = KeyboardControl(world, args.autopilot)
 
         clock = pygame.time.Clock()
