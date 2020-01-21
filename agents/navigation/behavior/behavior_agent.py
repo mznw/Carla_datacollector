@@ -85,13 +85,13 @@ class BehaviorAgent(Agent):
         """
         self.speed = get_speed(self.vehicle)
         #self.speed_limit = world.player.get_speed_limit()
-        self.speed_limit = 49
+        self.speed_limit = 40
         self._local_planner.set_speed(self.speed_limit)
         self.direction = self._local_planner.target_road_option
         if self.direction is None:
             self.direction = RoadOption.LANEFOLLOW
 
-        self.look_ahead_steps = int((self.speed_limit) / 10)
+        self.look_ahead_steps = int((self.speed_limit) / 10) * 10
 
         self.incoming_waypoint, self.incoming_direction = self._local_planner.get_incoming_waypoint_and_direction(
             steps=self.look_ahead_steps)
